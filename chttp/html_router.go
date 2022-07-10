@@ -3,21 +3,27 @@ package chttp
 import (
 	"net/http"
 	"path"
+
+	"github.com/gocopper/copper/clogger"
 )
 
 type (
 	// HTMLRouter provides routes to serve (1) static assets (2) index page for an SPA
 	HTMLRouter struct {
 		rw        *ReaderWriter
+		renderer  *HTMLRenderer
 		staticDir StaticDir
 		config    Config
+		logger    clogger.Logger
 	}
 
 	// NewHTMLRouterParams holds the params needed to instantiate a new Router
 	NewHTMLRouterParams struct {
 		StaticDir StaticDir
 		RW        *ReaderWriter
+		Renderer  *HTMLRenderer
 		Config    Config
+		Logger    clogger.Logger
 	}
 )
 
@@ -25,8 +31,10 @@ type (
 func NewHTMLRouter(p NewHTMLRouterParams) (*HTMLRouter, error) {
 	return &HTMLRouter{
 		rw:        p.RW,
+		renderer:  p.Renderer,
 		staticDir: p.StaticDir,
 		config:    p.Config,
+		logger:    p.Logger,
 	}, nil
 }
 
@@ -37,6 +45,11 @@ func (ro *HTMLRouter) Routes() []Route {
 			Path:    "/static/{path:.*}",
 			Methods: []string{http.MethodGet},
 			Handler: ro.HandleStaticFile,
+		},
+		{
+			Path:    "/livewire/message/{component}",
+			Methods: []string{http.MethodPost},
+			Handler: ro.HandleLivewireMessage,
 		},
 	}
 
@@ -66,5 +79,24 @@ func (ro *HTMLRouter) HandleStaticFile(w http.ResponseWriter, r *http.Request) {
 func (ro *HTMLRouter) HandleIndexPage(w http.ResponseWriter, r *http.Request) {
 	ro.rw.WriteHTML(w, r, WriteHTMLParams{
 		PageTemplate: "index.html",
+	})
+}
+
+func (ro *HTMLRouter) HandleLivewireMessage(w http.ResponseWriter, r *http.Request) {
+	var message LivewireMessage
+
+	if ok := ro.rw.ReadJSON(w, r, &message); !ok {
+		return
+	}
+
+	resp, err := ro.renderer.livewireUpdate(&message)
+	if err != nil {
+		ro.logger.Error("Failed to render livewire component update", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	ro.rw.WriteJSON(w, WriteJSONParams{
+		Data: &resp,
 	})
 }
